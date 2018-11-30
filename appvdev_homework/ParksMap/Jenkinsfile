@@ -1,0 +1,143 @@
+ node('maven-appdev') {
+    GUID='e05e'
+    CLUSTER='https://master.na39.openshift.opentlc.com'
+    echo "GUID: ${GUID}"
+    echo "CLUSTER: ${CLUSTER}"
+
+    // Checkout Source Code.
+    stage('Checkout Source') {
+      git url: 'https://github.com/cfoskin/appvdev_homework.git'
+    }
+
+    dir("ParksMap") {
+      def groupId    = getGroupIdFromPom("pom.xml")
+      def artifactId = getArtifactIdFromPom("pom.xml")
+      def version    = getVersionFromPom("pom.xml")
+      // Set the tag for the development image: version + build number
+      def devTag  = "${version}-${BUILD_NUMBER}"
+      // Set the tag for the production image: version
+      def prodTag = "${version}"
+      echo " Dev TAG: ${devTag}"
+      echo " Prod TAG: ${prodTag}"
+
+      def mvnCmd = "mvn -s ./nexus_settings.xml"
+      echo "mvnCmd: ${mvnCmd}"
+
+      // Using Maven build the war file
+      stage('Build war') {
+        echo "Building version ${devTag}"
+        sh "${mvnCmd} clean package -DskipTests"
+      }
+
+      // Using Maven run the unit tests
+      stage('Unit Tests') {
+        echo "Running Unit Tests"
+        sh "${mvnCmd} test"
+      }
+
+      stage('Code Analysis') {
+        echo "Running Code Analysis"
+        sh "${mvnCmd} sonar:sonar -Dsonar.host.url=http://sonarqube-${GUID}-sonarqube.apps.na39.openshift.opentlc.com -Dsonar.projectName=${JOB_BASE_NAME}-${devTag}"
+      }
+
+      // Build the OpenShift Image in OpenShift and tag it.
+      stage('Build and Tag OpenShift Image') {
+        echo "Building OpenShift container image parksmap:${devTag}"
+        // Start Binary Build in OpenShift using the file we just published
+        sh "oc start-build parksmap --follow --from-file=./target/parksmap.jar -n $GUID-parks-dev"
+
+        // Tag the image using the devTag
+        openshiftTag alias: 'false', destStream: 'parksmap', destTag: devTag, destinationNamespace: 'e05e-parks-dev', namespace: 'e05e-parks-dev', srcStream: 'parksmap', srcTag: 'latest', verbose: 'false'
+      }
+
+      stage('Publish to Nexus') {
+        echo "Publish to Nexus"
+        sh "${mvnCmd} deploy -DskipTests=true -DaltDeploymentRepository=nexus::default::http://nexus3-${GUID}-nexus.apps.na39.openshift.opentlc.com/repository/releases"
+      }
+
+      // Deploy the built image to the Development Environment.
+      stage('Deploy to Dev') {
+        echo "Deploying container image to Development Project"
+
+        // Update the Image on the Development Deployment Config
+        sh "oc set image dc/parksmap parksmap=docker-registry.default.svc:5000/${GUID}-parks-dev/parksmap:${devTag} -n ${GUID}-parks-dev"
+
+        // Deploy the development application.
+        openshiftDeploy depCfg: 'parksmap', namespace: 'e05e-parks-dev', verbose: 'false', waitTime: '', waitUnit: 'sec'
+        openshiftVerifyDeployment depCfg: 'parksmap', namespace: 'e05e-parks-dev', replicaCount: '1', verbose: 'false', verifyReplicaCount: 'false', waitTime: '', waitUnit: 'sec'
+        openshiftVerifyService namespace: 'e05e-parks-dev', svcName: 'parksmap', verbose: 'false'
+      }
+
+      // Run Integration Tests in the Development Environment.
+      stage('Integration Tests') {
+        echo "Running Integration Tests"
+        sleep 30
+
+        //check health endpoint
+        echo "Checking health endpoint"
+        sh "curl -i -H 'Content-Length: 0' -X GET http://parksmap.e05e-parks-dev.svc:8080/ws/healthz/"
+
+        // checking backends endpoint
+        echo "Checking backends endpoint"
+        sh "curl -i -H 'Content-Length: 0' -X GET http://parksmap.e05e-parks-dev.svc:8080/ws/backends/list/"
+
+        // checking app names endpoint
+        echo "Checking app names endpoint"
+        sh "curl -i -H 'Content-Length: 0' -X GET http://parksmap.e05e-parks-dev.svc:8080/ws/appname/"
+      }
+
+      // Copy Image to Nexus Docker Registry
+      stage('Copy Image to Nexus Docker Registry') {
+        echo "Copy image to Nexus Docker Registry"
+        sh "skopeo copy --src-tls-verify=false --dest-tls-verify=false --src-creds openshift:\$(oc whoami -t) --dest-creds admin:admin123 docker://docker-registry.default.svc.cluster.local:5000/${GUID}-parks-dev/parksmap:${devTag} docker://nexus-registry.${GUID}-nexus.svc.cluster.local:5000/parksmap:${devTag}"
+
+        // Tag the built image with the production tag.
+        openshiftTag alias: 'false', destStream: 'parksmap', destTag: prodTag, destinationNamespace: 'e05e-parks-dev', namespace: 'e05e-parks-dev', srcStream: 'parksmap', srcTag: devTag, verbose: 'false'
+      }
+
+      // Blue/Green Deployment into Production
+      // -------------------------------------
+      // Do not activate the new version yet.
+      def destApp   = "parksmap-green"
+      def activeApp = ""
+
+      stage('Blue/Green Production Deployment') {
+        activeApp = sh(returnStdout: true, script: "oc get route parksmap -n ${GUID}-parks-prod -o jsonpath='{ .spec.to.name }'").trim()
+        if (activeApp == "parksmap-green") {
+          destApp = "parksmap-blue"
+        }
+        echo "Active Application:      " + activeApp
+        echo "Destination Application: " + destApp
+
+        // Update the Image on the Production Deployment Config
+        sh "oc set image dc/${destApp} ${destApp}=docker-registry.default.svc:5000/${GUID}-parks-dev/parksmap:${prodTag} -n ${GUID}-parks-prod"
+
+        // Deploy the inactive application.
+        openshiftDeploy depCfg: destApp, namespace: 'e05e-parks-prod', verbose: 'false', waitTime: '', waitUnit: 'sec'
+        openshiftVerifyDeployment depCfg: destApp, namespace: 'e05e-parks-prod', replicaCount: '1', verbose: 'false', verifyReplicaCount: 'true', waitTime: '', waitUnit: 'sec'
+        openshiftVerifyService namespace: 'e05e-parks-prod', svcName: destApp, verbose: 'false'
+      }
+
+      stage('Switch over to new Version') {
+        input "Switch Production?"
+        echo "Switching Production application to ${destApp}."
+        sh "oc project ${GUID}-parks-prod "
+        sh 'oc patch route parksmap -p \'{"spec":{"to":{"name":"' + destApp + '"}}}\''
+      }
+   }
+  }
+
+// Convenience Functions to read variables from the pom.xml. 
+// Do not change anything below this line.
+def getVersionFromPom(pom) {
+  def matcher = readFile(pom) =~ '<version>(.+)</version>'
+  matcher ? matcher[0][1] : null
+}
+def getGroupIdFromPom(pom) {
+  def matcher = readFile(pom) =~ '<groupId>(.+)</groupId>'
+  matcher ? matcher[0][1] : null
+}
+def getArtifactIdFromPom(pom) {
+  def matcher = readFile(pom) =~ '<artifactId>(.+)</artifactId>'
+  matcher ? matcher[0][1] : null
+}
