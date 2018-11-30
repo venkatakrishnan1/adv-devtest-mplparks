@@ -1,12 +1,12 @@
  node('maven-appdev') {
-    GUID='e05e'
+    GUID='6f9c'
     CLUSTER='https://master.na39.openshift.opentlc.com'
     echo "GUID: ${GUID}"
     echo "CLUSTER: ${CLUSTER}"
 
     // Checkout Source Code.
     stage('Checkout Source') {
-      git url: 'https://github.com/cfoskin/appvdev_homework.git'
+      git url: 'https://github.com/venkatakrishnan1/adv-devtest-mplparks.git'
     }
 
     dir("ParksMap") {
@@ -47,7 +47,7 @@
         sh "oc start-build parksmap --follow --from-file=./target/parksmap.jar -n $GUID-parks-dev"
 
         // Tag the image using the devTag
-        openshiftTag alias: 'false', destStream: 'parksmap', destTag: devTag, destinationNamespace: 'e05e-parks-dev', namespace: 'e05e-parks-dev', srcStream: 'parksmap', srcTag: 'latest', verbose: 'false'
+        openshiftTag alias: 'false', destStream: 'parksmap', destTag: devTag, destinationNamespace: '6f9c-parks-dev', namespace: '6f9c-parks-dev', srcStream: 'parksmap', srcTag: 'latest', verbose: 'false'
       }
 
       stage('Publish to Nexus') {
@@ -63,9 +63,9 @@
         sh "oc set image dc/parksmap parksmap=docker-registry.default.svc:5000/${GUID}-parks-dev/parksmap:${devTag} -n ${GUID}-parks-dev"
 
         // Deploy the development application.
-        openshiftDeploy depCfg: 'parksmap', namespace: 'e05e-parks-dev', verbose: 'false', waitTime: '', waitUnit: 'sec'
-        openshiftVerifyDeployment depCfg: 'parksmap', namespace: 'e05e-parks-dev', replicaCount: '1', verbose: 'false', verifyReplicaCount: 'false', waitTime: '', waitUnit: 'sec'
-        openshiftVerifyService namespace: 'e05e-parks-dev', svcName: 'parksmap', verbose: 'false'
+        openshiftDeploy depCfg: 'parksmap', namespace: '6f9c-parks-dev', verbose: 'false', waitTime: '', waitUnit: 'sec'
+        openshiftVerifyDeployment depCfg: 'parksmap', namespace: '6f9c-parks-dev', replicaCount: '1', verbose: 'false', verifyReplicaCount: 'false', waitTime: '', waitUnit: 'sec'
+        openshiftVerifyService namespace: '6f9c-parks-dev', svcName: 'parksmap', verbose: 'false'
       }
 
       // Run Integration Tests in the Development Environment.
@@ -75,15 +75,15 @@
 
         //check health endpoint
         echo "Checking health endpoint"
-        sh "curl -i -H 'Content-Length: 0' -X GET http://parksmap.e05e-parks-dev.svc:8080/ws/healthz/"
+        sh "curl -i -H 'Content-Length: 0' -X GET http://parksmap.6f9c-parks-dev.svc:8080/ws/healthz/"
 
         // checking backends endpoint
         echo "Checking backends endpoint"
-        sh "curl -i -H 'Content-Length: 0' -X GET http://parksmap.e05e-parks-dev.svc:8080/ws/backends/list/"
+        sh "curl -i -H 'Content-Length: 0' -X GET http://parksmap.6f9c-parks-dev.svc:8080/ws/backends/list/"
 
         // checking app names endpoint
         echo "Checking app names endpoint"
-        sh "curl -i -H 'Content-Length: 0' -X GET http://parksmap.e05e-parks-dev.svc:8080/ws/appname/"
+        sh "curl -i -H 'Content-Length: 0' -X GET http://parksmap.6f9c-parks-dev.svc:8080/ws/appname/"
       }
 
       // Copy Image to Nexus Docker Registry
@@ -92,7 +92,7 @@
         sh "skopeo copy --src-tls-verify=false --dest-tls-verify=false --src-creds openshift:\$(oc whoami -t) --dest-creds admin:admin123 docker://docker-registry.default.svc.cluster.local:5000/${GUID}-parks-dev/parksmap:${devTag} docker://nexus-registry.${GUID}-nexus.svc.cluster.local:5000/parksmap:${devTag}"
 
         // Tag the built image with the production tag.
-        openshiftTag alias: 'false', destStream: 'parksmap', destTag: prodTag, destinationNamespace: 'e05e-parks-dev', namespace: 'e05e-parks-dev', srcStream: 'parksmap', srcTag: devTag, verbose: 'false'
+        openshiftTag alias: 'false', destStream: 'parksmap', destTag: prodTag, destinationNamespace: 'e05e-parks-dev', namespace: '6f9c-parks-dev', srcStream: 'parksmap', srcTag: devTag, verbose: 'false'
       }
 
       // Blue/Green Deployment into Production
