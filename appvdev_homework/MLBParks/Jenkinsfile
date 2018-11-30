@@ -64,7 +64,7 @@
         // Deploy the development application.
         openshiftDeploy depCfg: 'mlbparks', namespace: 'e05e-parks-dev', verbose: 'false', waitTime: '', waitUnit: 'sec'
         openshiftVerifyDeployment depCfg: 'mlbparks', namespace: '6f9c-parks-dev', replicaCount: '1', verbose: 'false', verifyReplicaCount: 'false', waitTime: '', waitUnit: 'sec'
-        openshiftVerifyService namespace: 'e05e-parks-dev', svcName: 'mlbparks', verbose: 'false'
+        openshiftVerifyService namespace: '6f9c-parks-dev', svcName: 'mlbparks', verbose: 'false'
       }
 
       // Run Integration Tests in the Development Environment.
