@@ -6,7 +6,7 @@
 
     // Checkout Source Code.
     stage('Checkout Source') {
-      git url: 'https://github.com/cfoskin/appvdev_homework.git'
+      git url: 'https:https://github.com/venkatakrishnan1/adv-devtest-mplparks.git'
     }
 
     dir("MLBParks") {
@@ -46,7 +46,7 @@
         // Start Binary Build in OpenShift using the file we just published
         sh "oc start-build mlbparks --follow --from-file=./target/mlbparks.war -n $GUID-parks-dev"
         // Tag the image using the devTag
-        openshiftTag alias: 'false', destStream: 'mlbparks', destTag: devTag, destinationNamespace: 'e05e-parks-dev', namespace: 'e05e-parks-dev', srcStream: 'mlbparks', srcTag: 'latest', verbose: 'false'
+        openshiftTag alias: 'false', destStream: 'mlbparks', destTag: devTag, destinationNamespace: '6f9c-parks-dev', namespace: '6f9c-parks-dev', srcStream: 'mlbparks', srcTag: 'latest', verbose: 'false'
       }
 
       stage('Publish to Nexus') {
@@ -108,8 +108,8 @@
         sh "oc set image dc/${destApp} ${destApp}=docker-registry.default.svc:5000/${GUID}-parks-dev/mlbparks:${prodTag} -n ${GUID}-parks-prod"
 
         // Deploy the inactive application.
-        openshiftDeploy depCfg: destApp, namespace: 'e05e-parks-prod', verbose: 'false', waitTime: '', waitUnit: 'sec'
-        openshiftVerifyDeployment depCfg: destApp, namespace: 'e05e-parks-prod', replicaCount: '1', verbose: 'false', verifyReplicaCount: 'true', waitTime: '', waitUnit: 'sec'
+        openshiftDeploy depCfg: destApp, namespace: '6f9c-parks-prod', verbose: 'false', waitTime: '', waitUnit: 'sec'
+        openshiftVerifyDeployment depCfg: destApp, namespace: '6f9c-parks-prod', replicaCount: '1', verbose: 'false', verifyReplicaCount: 'true', waitTime: '', waitUnit: 'sec'
         openshiftVerifyService namespace: '6f9c-parks-prod', svcName: destApp, verbose: 'false'
       }
 
